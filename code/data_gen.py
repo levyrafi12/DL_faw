@@ -1,10 +1,11 @@
 import cv2
 from matplotlib import pyplot as plt
 import numpy as np
-from keras.utils import to_categorical
-from keras.utils import Sequence
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.utils import Sequence
+from tensorflow.keras import backend as K
 
-infected_threshold = 0.01
+infected_threshold = 0.0
 
 def infest_to_class_ind(n_classes, infest):
     if n_classes > 2:
@@ -15,7 +16,7 @@ def infest_to_class_ind(n_classes, infest):
 
 class DataGenerator(Sequence):
     'Generates data for Keras'
-    def __init__(self, root_dir, image_infest_list, batch_size, dim, n_classes):
+    def __init__(self, root_dir, model, image_infest_list, batch_size, dim, n_classes):
         'Initialization'
         self.dim = dim
         self.batch_size = batch_size
@@ -23,6 +24,8 @@ class DataGenerator(Sequence):
         self.epoch = 0 # used for the seed
         self.root_dir = root_dir
         self.n_classes = n_classes
+        self.model = model
+        self.batch_ind = 0
         self.on_epoch_end()
 
     def __len__(self):
@@ -38,13 +41,13 @@ class DataGenerator(Sequence):
         x_vecs = []
         y_labels = []
         low = index * self.batch_size
+        self.batch_ind += 1
         high = min((index + 1) * self.batch_size, len(self.image_infest_list))
         for i in range(low, high):
             img_fn = self.image_infest_list[i][0]
             img = cv2.imread(self.root_dir + img_fn)
             assert not img is None, img_fn
             assert img.any() != None, img_fn
-            # print(root_dir + img_fn)
             img = np.array(img) / 255.0 
             if img.shape[0] < img.shape[1]: # height first
                 img = np.transpose(img, (1,0,2))
@@ -61,6 +64,7 @@ class DataGenerator(Sequence):
 
     def on_epoch_end(self):
         'Updates indexes after each epoch'
+        self.batch_ind = 0
         self.epoch += 1
         np.random.seed(self.epoch)
         np.random.shuffle(self.image_infest_list)
