@@ -37,13 +37,28 @@ from faw_utils import plot_ROC, plot_histogram, \
 unfreeze = True 
 training = True # if False, do prediction only
 gradCAM = False # if True, visualize Grad-CAM heatmaps (model must be trained)
-n_classes = 6 # Ran on 2 or 6 classes 
+n_classes = 6 # Ran on 2, 4or 6 classes
+# 'infest_win' - used for binary classification. images with infetstation 
+# level outside that window will not be part of the data. For healthy/Level 1 Severity,
+# for instance, set 'infest_win' to (0, 0.3) 
+infest_win = (0, 1.0) 
+# 'infest_step' - used for multiple classes only. set the size of each section along
+# the entire infestation level range. For 4 classes, for instance, set 'infest_step' to 0.3.
+# Last section will be set to ((n_classes - 2) * infest_step, 1.0)) 
+infest_step = 0.3
 batch_size = 32 
 start_epoch = 0 # starting epoch 
 n_epochs = 30 # num epochs 
-val_ratio = 0.2 # validation data ratio
+val_ratio = 0.18 # validation data ratio
+test_ratio = 0.1 # test data ratio
 # model_name = "vgg_model_bs_32_bin" # healthy vs infested model
-model_name = "vgg_model_bs_32_nc6" # infested severity classification model (6 classes)
+# model_name = "vgg_model_bs_32_bin_03" # healthy vs Level 1 Severity model
+# model_name = "vgg_model_bs_32_bin_06" # healthy vs Level 2 Severity model
+# model_name = "vgg_model_bs_32_bin_10" # healthy vs Level 3 Severity model
+# Coarse severity classification model (4 classes)
+# model_name = "vgg_model_bs_32_nc4"
+# Fine grained severity classification model (6 classes) 
+model_name = "vgg_model_bs_32_nc6" 
 #### end user defined parameters
 
 lr = 1e-5 # initial learning rate 
@@ -120,18 +135,19 @@ def prepare_data():
 	for _, val in id_to_images.items():
 		id_to_images_num[len(val)] += 1
 
-	infest_degree_list = [(0,0)]
-	for i in np.arange(1, n_classes - 1):
-		low = 1 / (n_classes - 1) * (i - 1) + infest_margin
-		high = 1 / (n_classes - 1) * i - infest_margin
+	infest_degree_list = [(0,0)] # not used by binrary classification
+	for i in np.arange(1, n_classes):
+		last_elem = infest_degree_list[-1]
+		low =  infest_step * (i - 1) + infest_margin
+		if i == n_classes - 1:
+			high = 1.01
+		else:
+			high = infest_step * i - infest_margin 
 		infest_degree_list.append((low, high))
 
-	last_elem = infest_degree_list[-1]
-	delta = 2 * infest_margin if n_classes > 2 else 0
-	infest_degree_list.append((last_elem[1] + delta, 1.01))
 	test_data = []
-
-	image_infest_list = []
+	train_data = []
+	val_data = []
 	np.random.seed(1)
 
 	for i, (id, images) in enumerate(id_to_images.items()):
@@ -144,22 +160,28 @@ def prepare_data():
 			if infest > 0:
 				low, high = infest_degree_list[class_ind]
 				if (infest < low) or (infest > high):
-					for image in images:
-						# leave aside 10% of the data for testing
-						if np.random.uniform() <= 0.1:	
-							test_data.append((image, infest))
+					# leave aside 10% of the data for testing
+					if np.random.uniform() <= test_ratio:	
+						for image in images:
+								test_data.append((image, infest))
 					continue
-		for image in images:
+		else: # binary classification
+			if (infest > 0 and infest <= infest_win[0]) or infest > infest_win[1]:
+				continue
+		if np.random.uniform() <= test_ratio:
 			# leave aside 10% of the data for testing
-			if np.random.uniform() <= 0.1:
+			for image in images:
 				test_data.append((image, infest))
-			else:
-				image_infest_list.append((image, infest))
+			continue
+		if np.random.uniform() <= val_ratio:
+			for image in images:
+				val_data.append((image, infest))
+		else:
+			for image in images:
+				train_data.append((image, infest))
 
-	np.random.shuffle(image_infest_list)
-	print("data before splitting #{} {}".format(len(image_infest_list), \
-		gen_num_image_per_class(image_infest_list, n_classes)))
-	train_data, val_data = split_data(image_infest_list)
+	np.random.shuffle(train_data)
+	np.random.shuffle(val_data)
 	print("trained data after splitting #{} {}".format(len(train_data),
 		gen_num_image_per_class(train_data, n_classes)))
 
